@@ -1,32 +1,35 @@
 from services.gemini_service import ask_gemini
 
-def daily_action_plan(tasks):
 
-    prompt = f"""
-You are LastMinuteAI, an AI productivity coach.
+def daily_action_plan(tasks: list) -> str:
+    tasks_formatted = "\n".join(f"- {t}" for t in tasks)
 
-Today's Tasks:
-{tasks}
+    prompt = f"""You are LastMinuteAI, an AI productivity coach helping users make the most of their day.
 
-Your goal is to help the user make the best decisions today and avoid missing deadlines.
+Today's tasks:
+{tasks_formatted}
 
-Return ONLY valid JSON.
+Create a practical daily action plan. Help the user prioritize, schedule wisely, and avoid distractions.
+
+Return ONLY valid JSON. No markdown. No explanation. No backticks.
 
 {{
-  "highest_priority":"Assignment Submission",
-  "today_goal":"Finish the assignment and prepare for the interview.",
-  "recommended_schedule":[
-    "4 PM - 6 PM Assignment Submission",
-    "6 PM - 7 PM Technical Interview Preparation",
-    "7 PM - 7:30 PM Gym"
+  "highest_priority": "The single most important task today",
+  "today_goal": "One clear, motivating goal statement for the day",
+  "recommended_schedule": [
+    "9AM–11AM: Task with context",
+    "11AM–12PM: Another task"
   ],
-  "avoid":[
-    "Netflix",
-    "Social Media"
+  "avoid": [
+    "Specific distraction or time-waster to skip today"
   ],
-  "motivation":"Focus on what moves you closer to your goals.",
-  "completion_probability":"90%"
+  "motivation": "A short, genuine motivational message specific to these tasks",
+  "completion_probability": "85%",
+  "quick_wins": [
+    "A fast task that can be done in under 15 minutes to build momentum"
+  ]
 }}
-"""
 
+Be specific and practical. The schedule should feel realistic, not aspirational.
+"""
     return ask_gemini(prompt)
