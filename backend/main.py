@@ -6,6 +6,7 @@ import json
 from agents.planning_agent import create_plan
 from agents.priority_agent import prioritize_tasks
 from agents.rescue_agent import rescue_plan
+from agents.daily_coach_agent import daily_action_plan
 
 app = FastAPI(title="LastMinuteAI")
 
@@ -34,6 +35,9 @@ class RescueRequest(BaseModel):
     task: str
     hours_needed: int
     hours_left: int
+    
+class DailyCoachRequest(BaseModel):
+    tasks: list[str]
 
 
 # -------------------------
@@ -118,5 +122,12 @@ def rescue(req: RescueRequest):
         req.hours_needed,
         req.hours_left
     )
+
+    return parse_gemini_json(result)
+
+@app.post("/daily-coach")
+def daily_coach(req: DailyCoachRequest):
+
+    result = daily_action_plan(req.tasks)
 
     return parse_gemini_json(result)
