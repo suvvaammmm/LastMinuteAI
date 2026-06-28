@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import API from "../services/api";
 import styles from "./Dashboard.module.css";
 
@@ -93,11 +93,46 @@ export default function Dashboard() {
   const [taskList, setTaskList] = useState([]);
   const [taskError, setTaskError] = useState("");
 
+  // Dashboard Statistics
+  const pendingTasks = taskList.filter(task => !task.completed).length;
+  const totalHours = taskList.reduce(
+    (sum, task) => sum + Number(task.hours),
+    0
+  );
+  const today = new Date();
+  const highRiskTasks = taskList.filter(task => {
+    const dueDate = new Date(task.deadline);
+    const diff =
+      (dueDate - today) / (1000 * 60 * 60 * 24);
+    return diff <= 1 && !task.completed;
+  }).length;
+
+  const productivityScore = Math.max(
+    0,
+    100 - highRiskTasks * 10
+  );
+
+  <Card style={{ marginBottom: "25px" }}>
+  <h2>🤖 AI Productivity Coach</h2>
+
+  <pre
+    style={{
+      whiteSpace: "pre-wrap",
+      fontSize: "16px",
+      lineHeight: "1.6",
+    }}
+  >
+    {aiSummary}
+  </pre>
+</Card>
+
   // Planner state
   const [planTask, setPlanTask] = useState("");
   const [plan, setPlan] = useState("");
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState("");
+
+  const [aiSummary, setAiSummary] = useState("");
 
   // Priority state
   const [priorityInput, setPriorityInput] = useState("");
@@ -221,6 +256,43 @@ export default function Dashboard() {
     }
   };
 
+  useEffect(() => {
+  if (taskList.length > 0) {
+    generateAISummary();
+  }
+}, [taskList]);
+
+  const generateAISummary = async () => {
+  try {
+    if (taskList.length === 0) {
+      setAiSummary("No tasks added yet.");
+      return;
+    }
+
+    const response = await API.post("/daily-coach", {
+      tasks: taskList.map((task) => task.name),
+    });
+
+    const data = response.data;
+
+    const summary = `
+🎯 Today's Goal:
+${data.today_goal}
+
+⚠ Highest Priority:
+${data.highest_priority}
+
+💪 Motivation:
+${data.motivation}
+`;
+
+    setAiSummary(summary);
+
+  } catch (err) {
+    console.log(err);
+  }
+};
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -260,12 +332,38 @@ export default function Dashboard() {
         {activeTab === "tasks" && (
           <div className={styles.tabContent}>
             <SectionHeader
-              icon="◈"
-              title="Task Manager"
-              subtitle="Track what you need to do and when it's due."
-            />
+  icon="◈"
+  title="Task Manager"
+  subtitle="Track what you need to do and when it's due."
+/>
 
-            <Card>
+{/* Dashboard Summary */}
+
+<div className={styles.statsGrid}>
+
+  <Card className={styles.statCard}>
+    <h2>{pendingTasks}</h2>
+    <p>Pending Tasks</p>
+  </Card>
+
+  <Card className={styles.statCard}>
+    <h2>{highRiskTasks}</h2>
+    <p>High Risk</p>
+  </Card>
+
+  <Card className={styles.statCard}>
+    <h2>{totalHours}</h2>
+    <p>Total Hours</p>
+  </Card>
+
+  <Card className={styles.statCard}>
+    <h2>{productivityScore}%</h2>
+    <p>AI Productivity</p>
+  </Card>
+
+</div>
+
+<Card>  
               <h3 className={styles.cardTitle}>Add New Task</h3>
               <div className={styles.formRow}>
                 <Input
