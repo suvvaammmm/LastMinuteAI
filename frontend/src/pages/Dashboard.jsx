@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import API from "../services/api";
 import styles from "./Dashboard.module.css";
 
@@ -55,15 +55,15 @@ function Err({ msg }) {
 // ── Nav config ────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "tasks",    label: "Task Board",    icon: "▦",  sub: "Manage deadlines" },
-  { id: "planner",  label: "AI Planner",    icon: "⬡",  sub: "Break down tasks" },
-  { id: "priority", label: "Prioritize",    icon: "↑↑", sub: "Rank by urgency"  },
-  { id: "rescue",   label: "Rescue Mode",   icon: "⚡",  sub: "Beat the clock"   },
-  { id: "coach",    label: "Daily Coach",   icon: "◎",  sub: "Plan your day"    },
+  { id: "tasks",    label: "Task Board",   icon: "▦",  sub: "Manage deadlines" },
+  { id: "planner",  label: "AI Planner",   icon: "⬡",  sub: "Break down tasks" },
+  { id: "priority", label: "Prioritize",   icon: "↑↑", sub: "Rank by urgency"  },
+  { id: "rescue",   label: "Rescue Mode",  icon: "⚡",  sub: "Beat the clock"   },
+  { id: "coach",    label: "Daily Coach",  icon: "◎",  sub: "Plan your day"    },
 ];
 
 const TAB_META = {
-  tasks:    { title: "Task Board",    sub: "Track your deadlines and commitments in one place." },
+  tasks:    { title: "Task Board",   sub: "Track your deadlines and commitments in one place." },
   planner:  { title: "AI Planner",   sub: "Describe any task and get a step-by-step action plan." },
   priority: { title: "Prioritize",   sub: "AI ranks your tasks by urgency and impact." },
   rescue:   { title: "Rescue Mode",  sub: "Running out of time? Get an emergency action plan." },
@@ -73,41 +73,41 @@ const TAB_META = {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab]     = useState("tasks");
-  const [time, setTime]               = useState(new Date());
+  const [activeTab, setActiveTab]   = useState("tasks");
+  const [time, setTime]             = useState(new Date());
 
   // Tasks
-  const [taskName, setTaskName]       = useState("");
-  const [deadline, setDeadline]       = useState("");
-  const [estHours, setEstHours]       = useState("");
-  const [taskList, setTaskList]       = useState([]);
-  const [taskError, setTaskError]     = useState("");
+  const [taskName, setTaskName]     = useState("");
+  const [deadline, setDeadline]     = useState("");
+  const [estHours, setEstHours]     = useState("");
+  const [taskList, setTaskList]     = useState([]);
+  const [taskError, setTaskError]   = useState("");
 
   // Planner
-  const [planTask, setPlanTask]       = useState("");
-  const [plan, setPlan]               = useState("");
-  const [planLoad, setPlanLoad]       = useState(false);
-  const [planErr, setPlanErr]         = useState("");
+  const [planTask, setPlanTask]     = useState("");
+  const [plan, setPlan]             = useState("");
+  const [planLoad, setPlanLoad]     = useState(false);
+  const [planErr, setPlanErr]       = useState("");
 
   // Priority
-  const [priInput, setPriInput]       = useState("");
-  const [priorities, setPriorities]   = useState([]);
-  const [priLoad, setPriLoad]         = useState(false);
-  const [priErr, setPriErr]           = useState("");
+  const [priInput, setPriInput]     = useState("");
+  const [priorities, setPriorities] = useState([]);
+  const [priLoad, setPriLoad]       = useState(false);
+  const [priErr, setPriErr]         = useState("");
 
   // Rescue
-  const [resTask, setResTask]         = useState("");
-  const [resNeed, setResNeed]         = useState("");
-  const [resLeft, setResLeft]         = useState("");
-  const [resResult, setResResult]     = useState(null);
-  const [resLoad, setResLoad]         = useState(false);
-  const [resErr, setResErr]           = useState("");
+  const [resTask, setResTask]       = useState("");
+  const [resNeed, setResNeed]       = useState("");
+  const [resLeft, setResLeft]       = useState("");
+  const [resResult, setResResult]   = useState(null);
+  const [resLoad, setResLoad]       = useState(false);
+  const [resErr, setResErr]         = useState("");
 
   // Coach
-  const [coachInput, setCoachInput]   = useState("");
-  const [coach, setCoach]             = useState(null);
-  const [coachLoad, setCoachLoad]     = useState(false);
-  const [coachErr, setCoachErr]       = useState("");
+  const [coachInput, setCoachInput] = useState("");
+  const [coach, setCoach]           = useState(null);
+  const [coachLoad, setCoachLoad]   = useState(false);
+  const [coachErr, setCoachErr]     = useState("");
 
   // Clock
   useEffect(() => {
@@ -116,14 +116,14 @@ export default function Dashboard() {
   }, []);
 
   // ── Derived stats ──────────────────────────────────────────────────────────
-  const now       = new Date();
-  const pending   = taskList.filter(t => !t.completed).length;
-  const totalH    = taskList.reduce((s, t) => s + Number(t.hours), 0);
-  const highRisk  = taskList.filter(t => {
+  const now      = new Date();
+  const pending  = taskList.filter(t => !t.completed).length;
+  const totalH   = taskList.reduce((s, t) => s + Number(t.hours), 0);
+  const highRisk = taskList.filter(t => {
     const diff = (new Date(t.deadline) - now) / 86400000;
     return diff <= 1 && !t.completed;
   }).length;
-  const score     = Math.max(0, 100 - highRisk * 15);
+  const score    = Math.max(0, 100 - highRisk * 15);
 
   const urgentCount = taskList.filter(t => {
     const diff = (new Date(t.deadline) - now) / 86400000;
@@ -149,10 +149,7 @@ export default function Dashboard() {
   const toggleTask = id => setTaskList(p => p.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
   const deleteTask = id => setTaskList(p => p.filter(t => t.id !== id));
 
-  const daysUntil = d => {
-    const diff = new Date(d) - new Date();
-    return Math.ceil(diff / 86400000);
-  };
+  const daysUntil = d => Math.ceil((new Date(d) - new Date()) / 86400000);
 
   // ── AI handlers ────────────────────────────────────────────────────────────
   const generatePlan = async () => {
@@ -199,7 +196,7 @@ export default function Dashboard() {
     finally { setCoachLoad(false); }
   };
 
-  const meta = TAB_META[activeTab];
+  const meta     = TAB_META[activeTab];
   const clockStr = time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const dateStr  = time.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 
@@ -244,15 +241,14 @@ export default function Dashboard() {
 
         {/* Topbar */}
         <div className={styles.topbar}>
-          <div className={styles.topbarLeft}>
+          <div>
             <div className={styles.pageTitle}>{meta.title}</div>
             <div className={styles.pageSubtitle}>{meta.sub}</div>
           </div>
-          <div className={styles.topbarRight}>
-            <div className={styles.clock}>{dateStr} · {clockStr}</div>
-          </div>
+          <div className={styles.clock}>{dateStr} · {clockStr}</div>
         </div>
 
+        {/* Scrollable content */}
         <div className={styles.content}>
 
           {/* ══ TASK BOARD ══════════════════════════════════════════════════ */}
@@ -322,7 +318,7 @@ export default function Dashboard() {
                 </div>
                 <div className={styles.taskList}>
                   {taskList.map(task => {
-                    const days = daysUntil(task.deadline);
+                    const days   = daysUntil(task.deadline);
                     const urgent = days <= 1;
                     const soon   = days <= 3 && days > 1;
                     return (
