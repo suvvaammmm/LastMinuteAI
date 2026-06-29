@@ -1,679 +1,568 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import API from "../services/api";
 import styles from "./Dashboard.module.css";
 
-// ─── Small reusable components ────────────────────────────────────────────────
+// ── Primitives ────────────────────────────────────────────────────────────────
 
 function Spinner() {
-  return <span className={styles.spinner} aria-label="Loading" />;
+  return <span className={styles.spinner} />;
 }
 
 function Badge({ level }) {
   const map = {
-    HIGH: { label: "High", cls: styles.badgeRed },
-    MEDIUM: { label: "Medium", cls: styles.badgeYellow },
-    LOW: { label: "Low", cls: styles.badgeGreen },
-    CRITICAL: { label: "Critical", cls: styles.badgeCritical },
-    ON_TRACK: { label: "On Track", cls: styles.badgeGreen },
+    HIGH:     styles.badgeHigh,
+    MEDIUM:   styles.badgeMedium,
+    LOW:      styles.badgeLow,
+    CRITICAL: styles.badgeCritical,
   };
-  const b = map[level] || map.MEDIUM;
-  return <span className={`${styles.badge} ${b.cls}`}>{b.label}</span>;
+  const labels = { HIGH: "High", MEDIUM: "Medium", LOW: "Low", CRITICAL: "Critical" };
+  return (
+    <span className={`${styles.badge} ${map[level] || styles.badgeMedium}`}>
+      {labels[level] || level}
+    </span>
+  );
 }
 
 function Card({ children, className = "" }) {
   return <div className={`${styles.card} ${className}`}>{children}</div>;
 }
 
-function SectionHeader({ icon, title, subtitle }) {
+function Field({ label, children }) {
   return (
-    <div className={styles.sectionHeader}>
-      <span className={styles.sectionIcon}>{icon}</span>
-      <div>
-        <h2 className={styles.sectionTitle}>{title}</h2>
-        {subtitle && <p className={styles.sectionSubtitle}>{subtitle}</p>}
-      </div>
-    </div>
-  );
-}
-
-function Input({ label, ...props }) {
-  return (
-    <div className={styles.fieldGroup}>
+    <div className={styles.field}>
       {label && <label className={styles.label}>{label}</label>}
-      <input className={styles.input} {...props} />
+      {children}
     </div>
   );
 }
 
-function Textarea({ label, ...props }) {
+function Btn({ onClick, loading, children, variant = "primary", style }) {
+  const cls = variant === "danger" ? styles.btnDanger
+            : variant === "ghost"  ? styles.btnGhost
+            : styles.btnPrimary;
   return (
-    <div className={styles.fieldGroup}>
-      {label && <label className={styles.label}>{label}</label>}
-      <textarea className={styles.textarea} {...props} />
-    </div>
-  );
-}
-
-function PrimaryButton({ onClick, loading, children, variant = "primary" }) {
-  return (
-    <button
-      className={`${styles.btn} ${styles[`btn_${variant}`]}`}
-      onClick={onClick}
-      disabled={loading}
-    >
+    <button className={`${styles.btn} ${cls}`} onClick={onClick} disabled={loading} style={style}>
       {loading ? <Spinner /> : children}
     </button>
   );
 }
 
-function ErrorMessage({ message }) {
-  if (!message) return null;
-  return <div className={styles.errorMsg}>⚠ {message}</div>;
+function Err({ msg }) {
+  if (!msg) return null;
+  return <div className={styles.error}>⚠ {msg}</div>;
 }
 
-// ─── Tab definitions ──────────────────────────────────────────────────────────
+// ── Nav config ────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "tasks", label: "My Tasks", icon: "◈" },
-  { id: "planner", label: "Task Planner", icon: "⊞" },
-  { id: "priority", label: "Prioritize", icon: "↑" },
-  { id: "rescue", label: "Rescue Mode", icon: "⚡" },
-  { id: "coach", label: "Daily Coach", icon: "◉" },
+  { id: "tasks",    label: "Task Board",    icon: "▦",  sub: "Manage deadlines" },
+  { id: "planner",  label: "AI Planner",    icon: "⬡",  sub: "Break down tasks" },
+  { id: "priority", label: "Prioritize",    icon: "↑↑", sub: "Rank by urgency"  },
+  { id: "rescue",   label: "Rescue Mode",   icon: "⚡",  sub: "Beat the clock"   },
+  { id: "coach",    label: "Daily Coach",   icon: "◎",  sub: "Plan your day"    },
 ];
 
-// ─── Main Dashboard ───────────────────────────────────────────────────────────
+const TAB_META = {
+  tasks:    { title: "Task Board",    sub: "Track your deadlines and commitments in one place." },
+  planner:  { title: "AI Planner",   sub: "Describe any task and get a step-by-step action plan." },
+  priority: { title: "Prioritize",   sub: "AI ranks your tasks by urgency and impact." },
+  rescue:   { title: "Rescue Mode",  sub: "Running out of time? Get an emergency action plan." },
+  coach:    { title: "Daily Coach",  sub: "Personalized daily schedule and motivation." },
+};
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState("tasks");
+  const [activeTab, setActiveTab]     = useState("tasks");
+  const [time, setTime]               = useState(new Date());
 
-  // Task Manager state
-  const [taskName, setTaskName] = useState("");
-  const [deadline, setDeadline] = useState("");
-  const [estimatedHours, setEstimatedHours] = useState("");
-  const [taskList, setTaskList] = useState([]);
-  const [taskError, setTaskError] = useState("");
+  // Tasks
+  const [taskName, setTaskName]       = useState("");
+  const [deadline, setDeadline]       = useState("");
+  const [estHours, setEstHours]       = useState("");
+  const [taskList, setTaskList]       = useState([]);
+  const [taskError, setTaskError]     = useState("");
 
-  // Dashboard Statistics
-  const pendingTasks = taskList.filter(task => !task.completed).length;
-  const totalHours = taskList.reduce(
-    (sum, task) => sum + Number(task.hours),
-    0
-  );
-  const today = new Date();
-  const highRiskTasks = taskList.filter(task => {
-    const dueDate = new Date(task.deadline);
-    const diff =
-      (dueDate - today) / (1000 * 60 * 60 * 24);
-    return diff <= 1 && !task.completed;
+  // Planner
+  const [planTask, setPlanTask]       = useState("");
+  const [plan, setPlan]               = useState("");
+  const [planLoad, setPlanLoad]       = useState(false);
+  const [planErr, setPlanErr]         = useState("");
+
+  // Priority
+  const [priInput, setPriInput]       = useState("");
+  const [priorities, setPriorities]   = useState([]);
+  const [priLoad, setPriLoad]         = useState(false);
+  const [priErr, setPriErr]           = useState("");
+
+  // Rescue
+  const [resTask, setResTask]         = useState("");
+  const [resNeed, setResNeed]         = useState("");
+  const [resLeft, setResLeft]         = useState("");
+  const [resResult, setResResult]     = useState(null);
+  const [resLoad, setResLoad]         = useState(false);
+  const [resErr, setResErr]           = useState("");
+
+  // Coach
+  const [coachInput, setCoachInput]   = useState("");
+  const [coach, setCoach]             = useState(null);
+  const [coachLoad, setCoachLoad]     = useState(false);
+  const [coachErr, setCoachErr]       = useState("");
+
+  // Clock
+  useEffect(() => {
+    const t = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // ── Derived stats ──────────────────────────────────────────────────────────
+  const now       = new Date();
+  const pending   = taskList.filter(t => !t.completed).length;
+  const totalH    = taskList.reduce((s, t) => s + Number(t.hours), 0);
+  const highRisk  = taskList.filter(t => {
+    const diff = (new Date(t.deadline) - now) / 86400000;
+    return diff <= 1 && !t.completed;
+  }).length;
+  const score     = Math.max(0, 100 - highRisk * 15);
+
+  const urgentCount = taskList.filter(t => {
+    const diff = (new Date(t.deadline) - now) / 86400000;
+    return diff <= 1 && !t.completed;
   }).length;
 
-  const productivityScore = Math.max(
-    0,
-    100 - highRiskTasks * 10
-  );
-
-  <Card style={{ marginBottom: "25px" }}>
-  <h2>🤖 AI Productivity Coach</h2>
-
-  <pre
-    style={{
-      whiteSpace: "pre-wrap",
-      fontSize: "16px",
-      lineHeight: "1.6",
-    }}
-  >
-    {aiSummary}
-  </pre>
-</Card>
-
-  // Planner state
-  const [planTask, setPlanTask] = useState("");
-  const [plan, setPlan] = useState("");
-  const [planLoading, setPlanLoading] = useState(false);
-  const [planError, setPlanError] = useState("");
-
-  const [aiSummary, setAiSummary] = useState("");
-
-  // Priority state
-  const [priorityInput, setPriorityInput] = useState("");
-  const [priorities, setPriorities] = useState([]);
-  const [priorityLoading, setPriorityLoading] = useState(false);
-  const [priorityError, setPriorityError] = useState("");
-
-  // Rescue state
-  const [rescueTask, setRescueTask] = useState("");
-  const [hoursNeeded, setHoursNeeded] = useState("");
-  const [hoursLeft, setHoursLeft] = useState("");
-  const [rescueResult, setRescueResult] = useState(null);
-  const [rescueLoading, setRescueLoading] = useState(false);
-  const [rescueError, setRescueError] = useState("");
-
-  // Coach state
-  const [coachInput, setCoachInput] = useState("");
-  const [coach, setCoach] = useState(null);
-  const [coachLoading, setCoachLoading] = useState(false);
-  const [coachError, setCoachError] = useState("");
-
-  // ── Task Manager handlers ──────────────────────────────────────────────────
-
+  // ── Task handlers ──────────────────────────────────────────────────────────
   const addTask = () => {
     setTaskError("");
-    if (!taskName.trim() || !deadline || !estimatedHours) {
-      setTaskError("Please fill in all fields before adding a task.");
-      return;
+    if (!taskName.trim() || !deadline || !estHours) {
+      setTaskError("Please fill in all three fields."); return;
     }
-    if (Number(estimatedHours) <= 0) {
-      setTaskError("Estimated hours must be a positive number.");
-      return;
+    if (Number(estHours) <= 0) {
+      setTaskError("Hours must be a positive number."); return;
     }
-    setTaskList((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        name: taskName.trim(),
-        deadline,
-        hours: Number(estimatedHours),
-        completed: false,
-      },
-    ]);
-    setTaskName("");
-    setDeadline("");
-    setEstimatedHours("");
+    setTaskList(p => [...p, {
+      id: Date.now(), name: taskName.trim(), deadline,
+      hours: Number(estHours), completed: false,
+    }]);
+    setTaskName(""); setDeadline(""); setEstHours("");
   };
 
-  const toggleTask = (id) =>
-    setTaskList((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t))
-    );
+  const toggleTask = id => setTaskList(p => p.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+  const deleteTask = id => setTaskList(p => p.filter(t => t.id !== id));
 
-  const deleteTask = (id) =>
-    setTaskList((prev) => prev.filter((t) => t.id !== id));
-
-  const daysUntil = (dateStr) => {
-    const diff = new Date(dateStr) - new Date();
-    return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  const daysUntil = d => {
+    const diff = new Date(d) - new Date();
+    return Math.ceil(diff / 86400000);
   };
 
-  // ── AI agent handlers ──────────────────────────────────────────────────────
-
+  // ── AI handlers ────────────────────────────────────────────────────────────
   const generatePlan = async () => {
-    if (!planTask.trim()) { setPlanError("Enter a task to plan."); return; }
-    setPlanError(""); setPlanLoading(true); setPlan("");
+    if (!planTask.trim()) { setPlanErr("Enter a task first."); return; }
+    setPlanErr(""); setPlanLoad(true); setPlan("");
     try {
-      const res = await API.post("/plan", { task: planTask });
-      setPlan(res.data.plan);
-    } catch (e) {
-      setPlanError(e.message);
-    } finally {
-      setPlanLoading(false);
-    }
+      const r = await API.post("/plan", { task: planTask });
+      setPlan(r.data.plan);
+    } catch (e) { setPlanErr(e.message); }
+    finally { setPlanLoad(false); }
   };
 
   const generatePriority = async () => {
-    const taskArray = priorityInput.split("\n").map((t) => t.trim()).filter(Boolean);
-    if (taskArray.length < 2) { setPriorityError("Enter at least 2 tasks to prioritize."); return; }
-    setPriorityError(""); setPriorityLoading(true); setPriorities([]);
+    const arr = priInput.split("\n").map(t => t.trim()).filter(Boolean);
+    if (arr.length < 2) { setPriErr("Enter at least 2 tasks."); return; }
+    setPriErr(""); setPriLoad(true); setPriorities([]);
     try {
-      const res = await API.post("/priority", { tasks: taskArray });
-      setPriorities(res.data.priorities || []);
-    } catch (e) {
-      setPriorityError(e.message);
-    } finally {
-      setPriorityLoading(false);
-    }
+      const r = await API.post("/priority", { tasks: arr });
+      setPriorities(r.data.priorities || []);
+    } catch (e) { setPriErr(e.message); }
+    finally { setPriLoad(false); }
   };
 
   const generateRescue = async () => {
-    if (!rescueTask.trim() || !hoursNeeded || !hoursLeft) {
-      setRescueError("Fill in all fields."); return;
-    }
-    setRescueError(""); setRescueLoading(true); setRescueResult(null);
+    if (!resTask.trim() || !resNeed || !resLeft) { setResErr("Fill in all fields."); return; }
+    setResErr(""); setResLoad(true); setResResult(null);
     try {
-      const res = await API.post("/rescue", {
-        task: rescueTask,
-        hours_needed: parseInt(hoursNeeded),
-        hours_left: parseInt(hoursLeft),
+      const r = await API.post("/rescue", {
+        task: resTask, hours_needed: parseInt(resNeed), hours_left: parseInt(resLeft),
       });
-      setRescueResult(res.data);
-    } catch (e) {
-      setRescueError(e.message);
-    } finally {
-      setRescueLoading(false);
-    }
+      setResResult(r.data);
+    } catch (e) { setResErr(e.message); }
+    finally { setResLoad(false); }
   };
 
   const generateCoach = async () => {
-    const taskArray = coachInput.split("\n").map((t) => t.trim()).filter(Boolean);
-    if (taskArray.length === 0) { setCoachError("Enter at least one task."); return; }
-    setCoachError(""); setCoachLoading(true); setCoach(null);
+    const arr = coachInput.split("\n").map(t => t.trim()).filter(Boolean);
+    if (arr.length === 0) { setCoachErr("Enter at least one task."); return; }
+    setCoachErr(""); setCoachLoad(true); setCoach(null);
     try {
-      const res = await API.post("/daily-coach", { tasks: taskArray });
-      setCoach(res.data);
-    } catch (e) {
-      setCoachError(e.message);
-    } finally {
-      setCoachLoading(false);
-    }
+      const r = await API.post("/daily-coach", { tasks: arr });
+      setCoach(r.data);
+    } catch (e) { setCoachErr(e.message); }
+    finally { setCoachLoad(false); }
   };
 
-  useEffect(() => {
-  if (taskList.length > 0) {
-    generateAISummary();
-  }
-}, [taskList]);
-
-  const generateAISummary = async () => {
-  try {
-    if (taskList.length === 0) {
-      setAiSummary("No tasks added yet.");
-      return;
-    }
-
-    const response = await API.post("/daily-coach", {
-      tasks: taskList.map((task) => task.name),
-    });
-
-    const data = response.data;
-
-    const summary = `
-🎯 Today's Goal:
-${data.today_goal}
-
-⚠ Highest Priority:
-${data.highest_priority}
-
-💪 Motivation:
-${data.motivation}
-`;
-
-    setAiSummary(summary);
-
-  } catch (err) {
-    console.log(err);
-  }
-};
-
-  // ─── Render ────────────────────────────────────────────────────────────────
+  const meta = TAB_META[activeTab];
+  const clockStr = time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const dateStr  = time.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 
   return (
     <div className={styles.shell}>
-      {/* Sidebar */}
+
+      {/* ── Sidebar ── */}
       <aside className={styles.sidebar}>
         <div className={styles.brand}>
-          <span className={styles.brandMark}>⚡</span>
-          <div>
-            <div className={styles.brandName}>LastMinute<span>AI</span></div>
-            <div className={styles.brandTag}>Your deadline wingman</div>
+          <div className={styles.brandLogo}>⚡</div>
+          <div className={styles.brandText}>
+            <div className={styles.brandName}>Last<em>Minute</em>AI</div>
+            <div className={styles.brandSub}>Deadline Companion</div>
           </div>
         </div>
 
         <nav className={styles.nav}>
-          {TABS.map((tab) => (
+          <div className={styles.navSection}>Workspace</div>
+          {TABS.map(tab => (
             <button
               key={tab.id}
               className={`${styles.navItem} ${activeTab === tab.id ? styles.navItemActive : ""}`}
               onClick={() => setActiveTab(tab.id)}
             >
               <span className={styles.navIcon}>{tab.icon}</span>
-              {tab.label}
+              <span className={styles.navItemText}>{tab.label}</span>
+              {tab.id === "tasks" && urgentCount > 0 && (
+                <span className={styles.navBadge}>{urgentCount}</span>
+              )}
             </button>
           ))}
         </nav>
 
         <div className={styles.sidebarFooter}>
           <span className={styles.statusDot} />
-          <span>API connected</span>
+          <span>AI online</span>
         </div>
       </aside>
 
-      {/* Main content */}
+      {/* ── Main ── */}
       <main className={styles.main}>
-        {/* ── My Tasks ─────────────────────────────────────────────────── */}
-        {activeTab === "tasks" && (
-          <div className={styles.tabContent}>
-            <SectionHeader
-  icon="◈"
-  title="Task Manager"
-  subtitle="Track what you need to do and when it's due."
-/>
 
-{/* Dashboard Summary */}
+        {/* Topbar */}
+        <div className={styles.topbar}>
+          <div className={styles.topbarLeft}>
+            <div className={styles.pageTitle}>{meta.title}</div>
+            <div className={styles.pageSubtitle}>{meta.sub}</div>
+          </div>
+          <div className={styles.topbarRight}>
+            <div className={styles.clock}>{dateStr} · {clockStr}</div>
+          </div>
+        </div>
 
-<div className={styles.statsGrid}>
+        <div className={styles.content}>
 
-  <Card className={styles.statCard}>
-    <h2>{pendingTasks}</h2>
-    <p>Pending Tasks</p>
-  </Card>
-
-  <Card className={styles.statCard}>
-    <h2>{highRiskTasks}</h2>
-    <p>High Risk</p>
-  </Card>
-
-  <Card className={styles.statCard}>
-    <h2>{totalHours}</h2>
-    <p>Total Hours</p>
-  </Card>
-
-  <Card className={styles.statCard}>
-    <h2>{productivityScore}%</h2>
-    <p>AI Productivity</p>
-  </Card>
-
-</div>
-
-<Card>  
-              <h3 className={styles.cardTitle}>Add New Task</h3>
-              <div className={styles.formRow}>
-                <Input
-                  label="Task name"
-                  placeholder="e.g. Finish assignment"
-                  value={taskName}
-                  onChange={(e) => setTaskName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && addTask()}
-                />
-                <Input
-                  label="Deadline"
-                  type="date"
-                  value={deadline}
-                  onChange={(e) => setDeadline(e.target.value)}
-                />
-                <Input
-                  label="Est. hours"
-                  type="number"
-                  min="0.5"
-                  step="0.5"
-                  placeholder="4"
-                  value={estimatedHours}
-                  onChange={(e) => setEstimatedHours(e.target.value)}
-                />
+          {/* ══ TASK BOARD ══════════════════════════════════════════════════ */}
+          {activeTab === "tasks" && (<>
+            <div className={styles.statsStrip}>
+              <div className={styles.statCard}>
+                <div className={styles.statIcon} style={{ background: "rgba(124,110,245,0.12)" }}>📋</div>
+                <div className={styles.statVal} style={{ color: "var(--accent2)" }}>{pending}</div>
+                <div className={styles.statLabel}>Pending tasks</div>
               </div>
-              <ErrorMessage message={taskError} />
-              <PrimaryButton onClick={addTask}>Add Task</PrimaryButton>
+              <div className={styles.statCard}>
+                <div className={styles.statIcon} style={{ background: "rgba(248,113,113,0.1)" }}>🔥</div>
+                <div className={styles.statVal} style={{ color: "var(--red)" }}>{highRisk}</div>
+                <div className={styles.statLabel}>Due within 24h</div>
+              </div>
+              <div className={styles.statCard}>
+                <div className={styles.statIcon} style={{ background: "rgba(251,191,36,0.1)" }}>⏱</div>
+                <div className={styles.statVal} style={{ color: "var(--yellow)" }}>{totalH}h</div>
+                <div className={styles.statLabel}>Total workload</div>
+              </div>
+              <div className={styles.statCard}>
+                <div className={styles.statIcon} style={{ background: "rgba(52,211,153,0.1)" }}>📈</div>
+                <div className={styles.statVal} style={{ color: "var(--green)" }}>{score}%</div>
+                <div className={styles.statLabel}>Focus score</div>
+              </div>
+            </div>
+
+            <Card>
+              <div className={styles.cardHeader}>
+                <span className={styles.cardTitle}>Add a task</span>
+                <span className={styles.cardChip}>Quick add</span>
+              </div>
+              <div className={styles.formGrid}>
+                <Field label="Task name">
+                  <input
+                    className={styles.input}
+                    placeholder="e.g. Submit machine learning report"
+                    value={taskName}
+                    onChange={e => setTaskName(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && addTask()}
+                  />
+                </Field>
+                <Field label="Deadline">
+                  <input className={styles.input} type="date" value={deadline} onChange={e => setDeadline(e.target.value)} />
+                </Field>
+                <Field label="Est. hours">
+                  <input className={styles.input} type="number" min="0.5" step="0.5" placeholder="4" value={estHours} onChange={e => setEstHours(e.target.value)} />
+                </Field>
+              </div>
+              <Err msg={taskError} />
+              <Btn onClick={addTask}>＋ Add task</Btn>
             </Card>
 
             {taskList.length === 0 ? (
-              <div className={styles.emptyState}>
-                <span className={styles.emptyIcon}>◫</span>
-                <p>No tasks yet. Add one above to get started.</p>
-              </div>
-            ) : (
-              <div className={styles.taskList}>
-                <div className={styles.taskListHeader}>
-                  <h3>{taskList.filter((t) => !t.completed).length} remaining · {taskList.filter((t) => t.completed).length} done</h3>
+              <Card>
+                <div className={styles.emptyState}>
+                  <div className={styles.emptyIcon}>📭</div>
+                  <div className={styles.emptyTitle}>No tasks yet</div>
+                  <div className={styles.emptyHint}>Add your first task above to start tracking deadlines.</div>
                 </div>
-                {taskList.map((task) => {
-                  const days = daysUntil(task.deadline);
-                  const urgent = days <= 1;
-                  const soon = days <= 3 && days > 1;
-                  return (
-                    <div
-                      key={task.id}
-                      className={`${styles.taskItem} ${task.completed ? styles.taskDone : ""} ${urgent ? styles.taskUrgent : soon ? styles.taskSoon : ""}`}
-                    >
-                      <button
-                        className={`${styles.taskCheck} ${task.completed ? styles.taskCheckDone : ""}`}
-                        onClick={() => toggleTask(task.id)}
-                        title="Mark complete"
+              </Card>
+            ) : (
+              <Card>
+                <div className={styles.taskCountStrip}>
+                  <span className={styles.taskCountBadge}>{taskList.filter(t=>!t.completed).length}</span> remaining ·&nbsp;
+                  <span className={styles.taskCountBadge}>{taskList.filter(t=>t.completed).length}</span> done
+                </div>
+                <div className={styles.taskList}>
+                  {taskList.map(task => {
+                    const days = daysUntil(task.deadline);
+                    const urgent = days <= 1;
+                    const soon   = days <= 3 && days > 1;
+                    return (
+                      <div
+                        key={task.id}
+                        className={`${styles.taskItem} ${task.completed ? styles.taskDone : ""} ${urgent ? styles.taskUrgent : soon ? styles.taskSoon : ""}`}
                       >
-                        {task.completed ? "✓" : ""}
-                      </button>
-                      <div className={styles.taskInfo}>
-                        <span className={styles.taskName}>{task.name}</span>
-                        <div className={styles.taskMeta}>
-                          <span>📅 {task.deadline}</span>
-                          <span>·</span>
-                          <span>⏱ {task.hours}h</span>
-                          <span>·</span>
-                          <span className={urgent ? styles.metaUrgent : soon ? styles.metaSoon : ""}>
-                            {days < 0 ? "⚠ Overdue" : days === 0 ? "Due today!" : `${days}d left`}
-                          </span>
+                        <button
+                          className={`${styles.taskCheck} ${task.completed ? styles.taskCheckDone : ""}`}
+                          onClick={() => toggleTask(task.id)}
+                        >
+                          {task.completed ? "✓" : ""}
+                        </button>
+                        <div className={styles.taskInfo}>
+                          <span className={styles.taskName}>{task.name}</span>
+                          <div className={styles.taskMeta}>
+                            <span className={styles.metaChip}>📅 {task.deadline}</span>
+                            <span className={styles.metaChip}>⏱ {task.hours}h</span>
+                            <span className={`${styles.metaChip} ${urgent ? styles.metaUrgent : soon ? styles.metaSoon : ""}`}>
+                              {days < 0 ? "⚠ Overdue" : days === 0 ? "⚡ Due today" : `${days}d left`}
+                            </span>
+                          </div>
                         </div>
+                        <button className={styles.taskDel} onClick={() => deleteTask(task.id)}>×</button>
                       </div>
-                      <button className={styles.taskDelete} onClick={() => deleteTask(task.id)} title="Remove task">×</button>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              </Card>
             )}
-          </div>
-        )}
+          </>)}
 
-        {/* ── Planner Agent ─────────────────────────────────────────── */}
-        {activeTab === "planner" && (
-          <div className={styles.tabContent}>
-            <SectionHeader
-              icon="⊞"
-              title="Task Planner"
-              subtitle="Describe any task and get a step-by-step action plan."
-            />
-
+          {/* ══ AI PLANNER ══════════════════════════════════════════════════ */}
+          {activeTab === "planner" && (<>
             <Card>
-              <Textarea
-                label="What do you need to accomplish?"
-                placeholder="e.g. Build a full-stack web app for my university project"
-                rows={3}
-                value={planTask}
-                onChange={(e) => setPlanTask(e.target.value)}
-              />
-              <ErrorMessage message={planError} />
-              <PrimaryButton onClick={generatePlan} loading={planLoading}>
-                Generate Plan
-              </PrimaryButton>
+              <div className={styles.cardHeader}>
+                <span className={styles.cardTitle}>Describe your task</span>
+                <span className={styles.cardChip}>AI-powered</span>
+              </div>
+              <Field label="What do you need to accomplish?">
+                <textarea
+                  className={styles.textarea}
+                  rows={3}
+                  placeholder="e.g. Build a full-stack web app for my university final project by Friday"
+                  value={planTask}
+                  onChange={e => setPlanTask(e.target.value)}
+                />
+              </Field>
+              <Err msg={planErr} />
+              <Btn onClick={generatePlan} loading={planLoad}>Generate action plan →</Btn>
             </Card>
 
             {plan && (
-              <Card className={styles.resultCard}>
-                <div className={styles.resultHeader}>
-                  <span className={styles.resultLabel}>AI Action Plan</span>
+              <Card className={styles.cardGlow}>
+                <div className={styles.cardHeader}>
+                  <span className={styles.cardTitle}>Your AI action plan</span>
+                  <span className={styles.cardChip}>Ready</span>
                 </div>
-                <pre className={styles.planText}>{plan}</pre>
+                <pre className={styles.planOutput}>{plan}</pre>
               </Card>
             )}
-          </div>
-        )}
+          </>)}
 
-        {/* ── Priority Agent ─────────────────────────────────────────── */}
-        {activeTab === "priority" && (
-          <div className={styles.tabContent}>
-            <SectionHeader
-              icon="↑"
-              title="Priority Ranker"
-              subtitle="Paste your task list and AI will rank them by urgency and impact."
-            />
-
+          {/* ══ PRIORITY ═══════════════════════════════════════════════════ */}
+          {activeTab === "priority" && (<>
             <Card>
-              <Textarea
-                label="Your tasks (one per line)"
-                placeholder={"Submit assignment\nPrepare for interview\nReply to emails\nGo to gym"}
-                rows={6}
-                value={priorityInput}
-                onChange={(e) => setPriorityInput(e.target.value)}
-              />
-              <ErrorMessage message={priorityError} />
-              <PrimaryButton onClick={generatePriority} loading={priorityLoading}>
-                Rank Tasks
-              </PrimaryButton>
+              <div className={styles.cardHeader}>
+                <span className={styles.cardTitle}>Your tasks</span>
+                <span className={styles.cardChip}>One per line</span>
+              </div>
+              <Field label="Paste your task list">
+                <textarea
+                  className={styles.textarea}
+                  rows={6}
+                  placeholder={"Submit assignment\nPrepare for technical interview\nReply to client emails\nGym session\nPay rent"}
+                  value={priInput}
+                  onChange={e => setPriInput(e.target.value)}
+                />
+              </Field>
+              <Err msg={priErr} />
+              <Btn onClick={generatePriority} loading={priLoad}>Rank by priority →</Btn>
             </Card>
 
             {priorities.length > 0 && (
               <div className={styles.priorityList}>
                 {priorities.map((item, i) => (
-                  <Card key={i} className={styles.priorityCard}>
-                    <div className={styles.priorityRank}>
-                      <span className={styles.rankNumber}>{item.rank}</span>
+                  <div key={i} className={styles.priorityItem}>
+                    <div className={`${styles.rankBadge} ${i === 0 ? styles.r1 : i === 1 ? styles.r2 : i === 2 ? styles.r3 : ""}`}>
+                      {item.rank}
                     </div>
-                    <div className={styles.priorityInfo}>
-                      <div className={styles.priorityTop}>
-                        <span className={styles.priorityTask}>{item.task}</span>
-                        <Badge level={item.urgency || (i === 0 ? "HIGH" : i === 1 ? "MEDIUM" : "LOW")} />
+                    <div className={styles.priorityBody}>
+                      <div className={styles.priorityTask}>
+                        <span>{item.task}</span>
+                        <Badge level={item.urgency} />
                       </div>
-                      <p className={styles.priorityReason}>{item.reason}</p>
+                      <div className={styles.priorityReason}>{item.reason}</div>
                     </div>
-                  </Card>
+                  </div>
                 ))}
               </div>
             )}
-          </div>
-        )}
+          </>)}
 
-        {/* ── Rescue Mode ───────────────────────────────────────────── */}
-        {activeTab === "rescue" && (
-          <div className={styles.tabContent}>
-            <SectionHeader
-              icon="⚡"
-              title="Deadline Rescue"
-              subtitle="Running out of time? Get an emergency action plan instantly."
-            />
-
+          {/* ══ RESCUE MODE ════════════════════════════════════════════════ */}
+          {activeTab === "rescue" && (<>
             <Card>
-              <Input
-                label="What's the task?"
-                placeholder="e.g. Machine Learning project report"
-                value={rescueTask}
-                onChange={(e) => setRescueTask(e.target.value)}
-              />
-              <div className={styles.formRow}>
-                <Input
-                  label="Hours you need"
-                  type="number"
-                  min="1"
-                  placeholder="8"
-                  value={hoursNeeded}
-                  onChange={(e) => setHoursNeeded(e.target.value)}
-                />
-                <Input
-                  label="Hours you have"
-                  type="number"
-                  min="1"
-                  placeholder="4"
-                  value={hoursLeft}
-                  onChange={(e) => setHoursLeft(e.target.value)}
-                />
+              <div className={styles.cardHeader}>
+                <span className={styles.cardTitle}>Situation assessment</span>
+                <span className={styles.cardChip} style={{ background: "var(--red-dim)", color: "var(--red)", borderColor: "rgba(248,113,113,0.2)" }}>Emergency</span>
               </div>
-              <ErrorMessage message={rescueError} />
-              <PrimaryButton onClick={generateRescue} loading={rescueLoading} variant="primary_danger">
-                ⚡ Activate Rescue Mode
-              </PrimaryButton>
+              <Field label="What's the task?">
+                <input
+                  className={styles.input}
+                  placeholder="e.g. Machine learning project report"
+                  value={resTask}
+                  onChange={e => setResTask(e.target.value)}
+                />
+              </Field>
+              <div className={styles.formRow2}>
+                <Field label="Hours you need">
+                  <input className={styles.input} type="number" min="1" placeholder="8" value={resNeed} onChange={e => setResNeed(e.target.value)} />
+                </Field>
+                <Field label="Hours you have">
+                  <input className={styles.input} type="number" min="1" placeholder="4" value={resLeft} onChange={e => setResLeft(e.target.value)} />
+                </Field>
+              </div>
+              <Err msg={resErr} />
+              <Btn onClick={generateRescue} loading={resLoad} variant="danger">⚡ Activate rescue mode</Btn>
             </Card>
 
-            {rescueResult && (
+            {resResult && (
               <div className={styles.rescueResult}>
-                <Card className={styles.rescueSummary}>
-                  <div className={styles.rescueTop}>
+                <div className={styles.rescueHero}>
+                  <div className={styles.rescueTopRow}>
                     <div>
-                      <div className={styles.riskLabel}>Risk Level</div>
-                      <Badge level={rescueResult.risk} />
+                      <div className={styles.rescueMetaLabel}>Risk level</div>
+                      <Badge level={resResult.risk} />
                     </div>
                     <div>
-                      <div className={styles.riskLabel}>Success Chance</div>
-                      <span className={styles.probability}>{rescueResult.success_probability}</span>
+                      <div className={styles.rescueMetaLabel}>Success probability</div>
+                      <div className={styles.rescueProb}>{resResult.success_probability}</div>
                     </div>
                   </div>
-                  {rescueResult.summary && (
-                    <p className={styles.rescueSummaryText}>{rescueResult.summary}</p>
+                  {resResult.summary && (
+                    <div className={styles.rescueSummaryText}>{resResult.summary}</div>
                   )}
-                </Card>
+                </div>
 
                 <div className={styles.rescueCols}>
                   <Card>
-                    <h4 className={styles.rescueColTitle}>
-                      <span className={styles.greenDot}>●</span> Focus on this
-                    </h4>
-                    <ul className={styles.rescueList}>
-                      {rescueResult.focus?.map((item, i) => <li key={i}>{item}</li>)}
+                    <div className={styles.colTitle}>
+                      <span className={styles.dotGreen} /> Focus on this
+                    </div>
+                    <ul className={styles.bulletList}>
+                      {resResult.focus?.map((item, i) => <li key={i}>{item}</li>)}
                     </ul>
                   </Card>
-
                   <Card>
-                    <h4 className={styles.rescueColTitle}>
-                      <span className={styles.redDot}>●</span> Postpone this
-                    </h4>
-                    <ul className={styles.rescueList}>
-                      {rescueResult.postpone?.map((item, i) => <li key={i}>{item}</li>)}
+                    <div className={styles.colTitle}>
+                      <span className={styles.dotRed} /> Postpone / drop
+                    </div>
+                    <ul className={styles.bulletList}>
+                      {resResult.postpone?.map((item, i) => <li key={i}>{item}</li>)}
                     </ul>
                   </Card>
                 </div>
 
                 <Card>
-                  <h4 className={styles.rescueColTitle}>📅 Emergency Schedule</h4>
+                  <div className={styles.colTitle}>📅 Emergency schedule</div>
                   <div className={styles.scheduleList}>
-                    {rescueResult.schedule?.map((item, i) => (
+                    {resResult.schedule?.map((item, i) => (
                       <div key={i} className={styles.scheduleItem}>
-                        <span className={styles.scheduleIdx}>{i + 1}</span>
+                        <span className={styles.scheduleNum}>{i + 1}</span>
                         <span>{item}</span>
                       </div>
                     ))}
                   </div>
                 </Card>
 
-                {rescueResult.tips && (
+                {resResult.tips?.length > 0 && (
                   <Card>
-                    <h4 className={styles.rescueColTitle}>💡 Pro Tips</h4>
-                    <ul className={styles.rescueList}>
-                      {rescueResult.tips.map((tip, i) => <li key={i}>{tip}</li>)}
+                    <div className={styles.colTitle}>💡 Pro tips</div>
+                    <ul className={styles.bulletList}>
+                      {resResult.tips.map((t, i) => <li key={i}>{t}</li>)}
                     </ul>
                   </Card>
                 )}
               </div>
             )}
-          </div>
-        )}
+          </>)}
 
-        {/* ── Daily Coach ───────────────────────────────────────────── */}
-        {activeTab === "coach" && (
-          <div className={styles.tabContent}>
-            <SectionHeader
-              icon="◉"
-              title="Daily AI Coach"
-              subtitle="Get a personalized daily action plan and motivation boost."
-            />
-
+          {/* ══ DAILY COACH ════════════════════════════════════════════════ */}
+          {activeTab === "coach" && (<>
             <Card>
-              <Textarea
-                label="What's on your plate today? (one task per line)"
-                placeholder={"Submit assignment\nTechnical interview prep\nGym session\nCall with mentor"}
-                rows={5}
-                value={coachInput}
-                onChange={(e) => setCoachInput(e.target.value)}
-              />
-              <ErrorMessage message={coachError} />
-              <PrimaryButton onClick={generateCoach} loading={coachLoading}>
-                Build Today's Plan
-              </PrimaryButton>
+              <div className={styles.cardHeader}>
+                <span className={styles.cardTitle}>Today's tasks</span>
+                <span className={styles.cardChip}>One per line</span>
+              </div>
+              <Field label="What's on your plate today?">
+                <textarea
+                  className={styles.textarea}
+                  rows={5}
+                  placeholder={"Submit assignment\nTechnical interview prep\nGym session\nCall with mentor\nPrepare project slides"}
+                  value={coachInput}
+                  onChange={e => setCoachInput(e.target.value)}
+                />
+              </Field>
+              <Err msg={coachErr} />
+              <Btn onClick={generateCoach} loading={coachLoad}>Build today's plan →</Btn>
             </Card>
 
             {coach && (
               <div className={styles.coachResult}>
-                <Card className={styles.coachHero}>
+                <div className={styles.coachHero}>
                   <div className={styles.coachHeroRow}>
                     <div>
-                      <div className={styles.coachLabel}>Today's Goal</div>
-                      <p className={styles.coachGoal}>{coach.today_goal}</p>
+                      <div className={styles.coachMetaLabel}>Today's goal</div>
+                      <div className={styles.coachGoal}>{coach.today_goal}</div>
                     </div>
-                    <div className={styles.coachProb}>
-                      <div className={styles.coachLabel}>Completion</div>
-                      <span className={styles.coachProbNum}>{coach.completion_probability}</span>
+                    <div className={styles.coachCompletion}>
+                      <div className={styles.coachMetaLabel}>Completion</div>
+                      <div className={styles.coachPercent}>{coach.completion_probability}</div>
                     </div>
                   </div>
-                  <div className={styles.coachPriorityRow}>
-                    <span className={styles.coachLabel}>Top Priority</span>
-                    <span className={styles.coachPriority}>⬆ {coach.highest_priority}</span>
-                  </div>
-                  <div className={styles.motivationBox}>
-                    <span className={styles.motivationQuote}>"</span>
-                    <p>{coach.motivation}</p>
-                  </div>
-                </Card>
 
-                <div className={styles.coachCols}>
+                  <div className={styles.coachPriorityBanner}>
+                    <span className={styles.coachPriorityLabel}>Top priority</span>
+                    <span className={styles.coachPriorityVal}>⬆ {coach.highest_priority}</span>
+                  </div>
+
+                  <div className={styles.motivationBox}>{coach.motivation}</div>
+                </div>
+
+                <div className={styles.coachGrid}>
                   <Card>
-                    <h4 className={styles.rescueColTitle}>📅 Recommended Schedule</h4>
+                    <div className={styles.colTitle}>📅 Recommended schedule</div>
                     <div className={styles.scheduleList}>
                       {coach.recommended_schedule?.map((item, i) => (
                         <div key={i} className={styles.scheduleItem}>
-                          <span className={styles.scheduleIdx}>{i + 1}</span>
+                          <span className={styles.scheduleNum}>{i + 1}</span>
                           <span>{item}</span>
                         </div>
                       ))}
@@ -681,18 +570,17 @@ ${data.motivation}
                   </Card>
 
                   <div className={styles.coachRight}>
-                    {coach.quick_wins && (
+                    {coach.quick_wins?.length > 0 && (
                       <Card>
-                        <h4 className={styles.rescueColTitle}>⚡ Quick Wins</h4>
-                        <ul className={styles.rescueList}>
+                        <div className={styles.colTitle}>⚡ Quick wins</div>
+                        <ul className={styles.bulletList}>
                           {coach.quick_wins.map((w, i) => <li key={i}>{w}</li>)}
                         </ul>
                       </Card>
                     )}
-
                     <Card>
-                      <h4 className={styles.rescueColTitle}>🚫 Avoid Today</h4>
-                      <ul className={styles.rescueList}>
+                      <div className={styles.colTitle}>🚫 Avoid today</div>
+                      <ul className={styles.bulletList}>
                         {coach.avoid?.map((item, i) => <li key={i}>{item}</li>)}
                       </ul>
                     </Card>
@@ -700,8 +588,9 @@ ${data.motivation}
                 </div>
               </div>
             )}
-          </div>
-        )}
+          </>)}
+
+        </div>
       </main>
     </div>
   );
