@@ -14,15 +14,6 @@ LastMinuteAI solves this with four AI agents that give you a personalized action
 
 ---
 
-## 👤 Persona
-
-**Name:** Alex  
-**Situation:** Final-year CS student with three project deadlines in 48 hours  
-**Pain points:** Doesn't know which task to tackle first, keeps switching contexts, wastes time on low-impact work  
-**Goal:** A clear daily plan, ranked priorities, and an emergency backup when things go sideways
-
----
-
 ## 🚀 Features
 
 ### ▦ Task Board
