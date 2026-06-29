@@ -192,18 +192,4 @@ LastMinuteAI/
 - [ ] Chrome extension for quick task capture
 - [ ] Multi-user support with authentication
 
----
 
-## 🤝 Contributing
-
-Pull requests are welcome. For major changes, please open an issue first to discuss what you'd like to change.
-
----
-
-## 📄 License
-
-MIT License — see [LICENSE](LICENSE) for details.
-
----
-
-<p align="center">Built with ⚡ by developers who know what it feels like to have 4 hours and 8 hours of work left.</p>
